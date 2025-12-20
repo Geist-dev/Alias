@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Alias / Шляпа — Activity</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">🎩</div>
+        <div>
+          <div class="title">Шляпа (Alias)</div>
+          <div class="subtitle" id="roomLabel"></div>
+        </div>
+      </div>
+      <div class="right">
+        <div class="chip" id="statusChip">…</div>
+        <button class="btn ghost" id="copyLinkBtn" title="Скопировать ссылку на комнату">Ссылка</button>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="card" id="meCard">
+        <h2>Ты</h2>
+        <div class="row">
+          <label class="label">Ник</label>
+          <input id="nameInput" class="input" placeholder="Твой ник" />
+          <button class="btn" id="saveNameBtn">Сохранить</button>
+        </div>
+        <div class="muted" id="meMeta"></div>
+        <div class="divider"></div>
+        <div class="muted">Подсказка: открой эту же ссылку в другом окне, чтобы протестировать.</div>
+      </section>
+
+      <section class="card" id="lobbyCard">
+        <div class="cardHead">
+          <h2>Лобби</h2>
+          <div class="muted">Нужно минимум <b>2 команды</b> по <b>2 игрока</b> чтобы начать.</div>
+        </div>
+
+        <div class="row wrap">
+          <button class="btn" id="createTeamBtn">+ Команда</button>
+          <div class="row">
+            <label class="label">Раунд (сек)</label>
+            <input id="roundSeconds" class="input small" type="number" min="20" max="180" value="60" />
+            <button class="btn ghost" id="setRoundBtn">Применить</button>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn primary" id="startBtn" disabled>Старт</button>
+          <button class="btn ghost" id="pauseBtn" disabled>Пауза</button>
+          <button class="btn ghost" id="resumeBtn" disabled>Продолжить</button>
+          <button class="btn ghost" id="endTurnBtn" disabled>След. ход</button>
+        </div>
+
+        <div class="teams" id="teams"></div>
+        <div class="players" id="players"></div>
+      </section>
+
+      <section class="card" id="gameCard">
+        <div class="cardHead">
+          <h2>Игра</h2>
+          <div class="muted" id="turnLabel">—</div>
+        </div>
+
+        <div class="gameGrid">
+          <div class="timerBox">
+            <div class="timer" id="timer">00</div>
+            <div class="muted" id="roleLabel">—</div>
+          </div>
+
+          <div class="wordBox" id="wordBox">
+            <div class="word" id="word">—</div>
+            <div class="muted" id="wordHint">Слово видит только объясняющий.</div>
+          </div>
+
+          <div class="actions">
+            <button class="btn big primary" id="correctBtn" disabled>✅ Засчитано</button>
+            <button class="btn big" id="skipBtn" disabled>⏭️ Скип</button>
+
+            <div class="divider"></div>
+
+            <div class="hostPanel" id="hostPanel">
+              <div class="muted"><b>Ведущий</b>: может поправить последнее слово</div>
+              <div class="row wrap">
+                <button class="btn ghost" id="hostCountBtn" disabled>Засчитать</button>
+                <button class="btn ghost" id="hostNotCountBtn" disabled>Не засчитать</button>
+              </div>
+              <div class="muted" id="lastAction">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="scores" id="scores"></div>
+      </section>
+    </main>
+
+    <footer class="footer muted">
+      Для Discord Activity: укажи URL вида <b>https://…/?room=xxx</b>. Первый вошедший — ведущий.
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
