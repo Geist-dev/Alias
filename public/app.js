@@ -1,319 +1,182 @@
+'use strict';
+const $ = (selector) => document.querySelector(selector);
+const params = new URLSearchParams(location.search);
+const room = params.get('room') || crypto.randomUUID().slice(0, 8);
+if (!params.has('room')) { params.set('room', room); history.replaceState(null, '', `${location.pathname}?${params}`); }
+$('#roomLabel').textContent = `Комната / ${room}`;
+const sessionKey = `alias-session:${room}`;
+let socket, clientId = null, state = null, connected = false, reconnectTimer;
+let rosterKey = '', scoreKey = '';
+let retryDelay = 800;
+const byId = (id) => state?.players[id]?.name || '—';
+const isHost = () => state?.game.hostId === clientId;
 
-const $ = (sel) => document.querySelector(sel);
-
-const room = new URLSearchParams(location.search).get("room") || "default";
-$("#roomLabel").textContent = `Комната: ${room}`;
-
-const statusChip = $("#statusChip");
-const copyLinkBtn = $("#copyLinkBtn");
-
-const nameInput = $("#nameInput");
-const saveNameBtn = $("#saveNameBtn");
-const meMeta = $("#meMeta");
-
-const createTeamBtn = $("#createTeamBtn");
-const startBtn = $("#startBtn");
-const pauseBtn = $("#pauseBtn");
-const resumeBtn = $("#resumeBtn");
-const endTurnBtn = $("#endTurnBtn");
-
-const roundSecondsInput = $("#roundSeconds");
-const setRoundBtn = $("#setRoundBtn");
-
-const teamsEl = $("#teams");
-const playersEl = $("#players");
-
-const timerEl = $("#timer");
-const roleLabel = $("#roleLabel");
-const turnLabel = $("#turnLabel");
-const wordEl = $("#word");
-const wordHint = $("#wordHint");
-
-const correctBtn = $("#correctBtn");
-const skipBtn = $("#skipBtn");
-
-const hostPanel = $("#hostPanel");
-const hostCountBtn = $("#hostCountBtn");
-const hostNotCountBtn = $("#hostNotCountBtn");
-const lastActionEl = $("#lastAction");
-
-const scoresEl = $("#scores");
-
-let ws;
-let clientId = null;
-let state = null;
-
-function wsUrl() {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${location.host}/?room=${encodeURIComponent(room)}`;
+function notify(message, error = false) {
+  $('#notice').textContent = message;
+  $('#notice').classList.toggle('error', error);
+  $('#notice').hidden = !message;
 }
-
+function send(type, payload = {}) {
+  if (!connected || socket.readyState !== WebSocket.OPEN) { notify('Дождитесь подключения к серверу.', true); return; }
+  socket.send(JSON.stringify({ type, ...payload }));
+}
 function connect() {
-  statusChip.textContent = "Подключение…";
-  ws = new WebSocket(wsUrl());
-  ws.onopen = () => statusChip.textContent = "Онлайн";
-  ws.onclose = () => {
-    statusChip.textContent = "Оффлайн — переподключение…";
-    setTimeout(connect, 800);
-  };
-  ws.onerror = () => statusChip.textContent = "Ошибка соединения";
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.type === "WELCOME") {
-      clientId = msg.clientId;
-      state = msg.state;
-      render();
-    }
-    if (msg.type === "STATE") {
-      state = msg.state;
-      render();
-    }
-  };
-}
-
-function send(type, payload={}) {
-  if (!ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ type, ...payload }));
-}
-
-function isHost() {
-  return state?.game?.hostId && state.game.hostId === clientId;
-}
-
-function playerName(pid) {
-  const p = state?.players?.[pid];
-  return p ? p.name : "—";
-}
-
-function myPlayer() {
-  return state?.players?.[clientId] || null;
-}
-
-function validTeamsCount() {
-  const teams = Object.values(state?.teams || {});
-  return teams.filter(t => (t.playerIds||[]).length === 2).length;
-}
-
-function fmtTime(s) {
-  const n = Math.max(0, Number(s)||0);
-  return String(n).padStart(2,"0");
-}
-
-function renderPlayers() {
-  playersEl.innerHTML = "";
-  const players = Object.values(state.players || {}).sort((a,b)=>a.joinedAt-b.joinedAt);
-  for (const p of players) {
-    const el = document.createElement("div");
-    el.className = "playerTag";
-    const hostMark = (state.game.hostId === p.id) ? " 👑" : "";
-    el.textContent = `${p.name}${hostMark}`;
-    playersEl.appendChild(el);
-  }
-}
-
-function renderTeams() {
-  teamsEl.innerHTML = "";
-  const teams = Object.values(state.teams || {}).sort((a,b)=>a.id.localeCompare(b.id));
-  for (const t of teams) {
-    const card = document.createElement("div");
-    card.className = "team";
-
-    const head = document.createElement("div");
-    head.className = "teamHead";
-    const name = document.createElement("div");
-    name.className = "teamName";
-    name.textContent = t.name;
-
-    const badge = document.createElement("div");
-    badge.className = "badge";
-    badge.textContent = `${(t.playerIds||[]).length}/2`;
-
-    head.appendChild(name);
-    head.appendChild(badge);
-
-    const players = document.createElement("div");
-    players.className = "teamPlayers";
-
-    const ids = (t.playerIds || []);
-    if (ids.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "muted";
-      empty.textContent = "Пусто — нажми «Присоединиться»";
-      players.appendChild(empty);
-    } else {
-      for (const pid of ids) {
-        const p = state.players[pid];
-        const pill = document.createElement("div");
-        pill.className = "pill";
-        pill.innerHTML = `<b>${p?.name || "—"}</b><span class="mini">${pid===clientId?"это ты":""}</span>`;
-        players.appendChild(pill);
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(room)) { notify('ID комнаты: от 1 до 64 латинских букв, цифр, _ или -.', true); return; }
+  $('#statusChip').textContent = 'Подключение…';
+  const url = new URL('/ws', location.href);
+  url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.searchParams.set('room', room);
+  socket = new WebSocket(url);
+  socket.onopen = () => socket.send(JSON.stringify({ type: 'HELLO', resumeToken: sessionStorage.getItem(sessionKey) || '' }));
+  socket.onmessage = (event) => {
+    let message;
+    try { message = JSON.parse(event.data); } catch { return; }
+    if (message.type === 'ERROR') { notify(message.message, true); return; }
+    if (message.type === 'WELCOME') {
+      clientId = message.clientId;
+      sessionStorage.setItem(sessionKey, message.resumeToken);
+      connected = true; retryDelay = 800;
+      rosterKey = ''; // Re-enable team buttons disabled while the connection was down.
+      notify('');
+      if (message.state.players[clientId].name === 'Игрок') {
+        const savedName = localStorage.getItem('alias-name');
+        if (savedName) send('SET_NAME', { name: savedName });
       }
     }
-
-    const actions = document.createElement("div");
-    actions.className = "row wrap";
-    actions.style.marginTop = "10px";
-
-    const joinBtn = document.createElement("button");
-    joinBtn.className = "btn";
-    joinBtn.textContent = "Присоединиться";
-    joinBtn.disabled = (state.game.status !== "lobby") || (ids.length >= 2) || (myPlayer()?.teamId === t.id);
-    joinBtn.onclick = () => send("JOIN_TEAM", { teamId: t.id });
-
-    const leaveBtn = document.createElement("button");
-    leaveBtn.className = "btn ghost";
-    leaveBtn.textContent = "Выйти";
-    leaveBtn.disabled = (state.game.status !== "lobby") || (myPlayer()?.teamId !== t.id);
-    leaveBtn.onclick = () => send("LEAVE_TEAM");
-
-    const renameBtn = document.createElement("button");
-    renameBtn.className = "btn ghost";
-    renameBtn.textContent = "Переимен.";
-    renameBtn.disabled = !isHost() || (state.game.status !== "lobby");
-    renameBtn.onclick = () => {
-      const nm = prompt("Название команды", t.name);
-      if (nm) send("RENAME_TEAM", { teamId: t.id, name: nm });
-    };
-
-    actions.appendChild(joinBtn);
-    actions.appendChild(leaveBtn);
-    actions.appendChild(renameBtn);
-
-    card.appendChild(head);
-    card.appendChild(players);
-    card.appendChild(actions);
-    teamsEl.appendChild(card);
-  }
+    if (['WELCOME', 'STATE'].includes(message.type)) { state = message.state; render(); }
+  };
+  socket.onerror = () => notify('Не удалось подключиться к серверу.', true);
+  socket.onclose = (event) => {
+    connected = false;
+    $('#statusChip').textContent = 'Нет связи';
+    $('#word').textContent = '—';
+    $('#wordHint').textContent = 'Дождитесь подключения. Слово временно скрыто.';
+    document.querySelectorAll('main button').forEach((button) => { button.disabled = true; });
+    if ([4001, 1008, 1009, 1013].includes(event.code)) {
+      notify('Соединение закрыто: другая вкладка, лимит комнаты или сообщений. Обновите страницу для повторного подключения.', true);
+      return;
+    }
+    notify('Связь потеряна. Переподключаемся; место сохраняется 30 секунд.', true);
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, retryDelay);
+    retryDelay = Math.min(10000, retryDelay * 2);
+  };
 }
-
-function renderGame() {
-  const g = state.game;
-  const status = g.status;
-
-  // controls
-  createTeamBtn.disabled = status !== "lobby";
-  setRoundBtn.disabled = !isHost() || status !== "lobby";
-  startBtn.disabled = !isHost() || status !== "lobby" || validTeamsCount() < 2;
-  pauseBtn.disabled = !isHost() || status !== "running";
-  resumeBtn.disabled = !isHost() || status !== "paused";
-  endTurnBtn.disabled = !isHost() || status !== "running";
-
-  // labels
-  const team = state.teams[g.turnTeamId];
-  const exp = g.turnExplainerId ? playerName(g.turnExplainerId) : "—";
-  const lis = g.turnListenerId ? playerName(g.turnListenerId) : "—";
-  turnLabel.textContent = team ? `Ход: ${team.name} — объясняет ${exp}, угадывает ${lis}` : "Лобби";
-
-  timerEl.textContent = fmtTime(g.secondsLeft);
-
-  const isExplainer = (g.turnExplainerId === clientId);
-  const isListener  = (g.turnListenerId === clientId);
-
-  if (status !== "running") {
-    roleLabel.textContent = status === "paused" ? "Пауза" : "Ожидание";
-  } else if (isExplainer) {
-    roleLabel.textContent = "Твоя роль: объясняешь";
-  } else if (isListener) {
-    roleLabel.textContent = "Твоя роль: угадываешь";
-  } else {
-    roleLabel.textContent = "Ты зритель (в этом ходе)";
-  }
-
-  // show word only to explainer (host still sees last action, but not current word)
-  if (status === "running" && isExplainer) {
-    wordEl.textContent = g.currentWord || "—";
-    wordHint.textContent = "Объясняй и нажимай ✅ или ⏭️";
-  } else if (status === "running" && isListener) {
-    wordEl.textContent = "🤫";
-    wordHint.textContent = "Слушай объяснение и угадывай!";
-  } else {
-    wordEl.textContent = "—";
-    wordHint.textContent = "Слово видит только объясняющий.";
-  }
-
-  correctBtn.disabled = !(status === "running" && isExplainer);
-  skipBtn.disabled = !(status === "running" && isExplainer);
-
-  hostPanel.style.display = isHost() ? "block" : "none";
-  hostCountBtn.disabled = !isHost() || !g.lastAction;
-  hostNotCountBtn.disabled = !isHost() || !g.lastAction;
-
-  if (g.lastAction) {
-    const la = g.lastAction;
-    const tnm = state.teams[la.teamId]?.name || "Команда";
-    const by = playerName(la.by);
-    lastActionEl.textContent = `Последнее: «${la.word}» (${tnm}) — ${la.type} — решал: ${by}`;
-  } else {
-    lastActionEl.textContent = "Последнего действия нет.";
-  }
-
-  // scores
-  scoresEl.innerHTML = "";
-  const teams = Object.values(state.teams||{}).sort((a,b)=>b.score-a.score);
-  for (const t of teams) {
-    const sc = document.createElement("div");
-    sc.className = "scoreCard";
-    sc.innerHTML = `<div class="name">${t.name}</div><div class="pts">${t.score}</div>`;
-    scoresEl.appendChild(sc);
-  }
-
-  statusChip.textContent = status === "running" ? "Игра идёт" : (status === "paused" ? "Пауза" : "Лобби");
+function button(label, handler, className = 'btn ghost') {
+  const element = document.createElement('button');
+  element.type = 'button'; element.className = className; element.textContent = label;
+  element.addEventListener('click', handler);
+  return element;
 }
-
+function renderTeams() {
+  const key = JSON.stringify([state.teams, state.players, state.game.status, state.game.hostId]);
+  if (key === rosterKey) return;
+  rosterKey = key;
+  $('#teams').replaceChildren();
+  const lobby = state.game.status === 'lobby';
+  for (const team of Object.values(state.teams)) {
+    const card = document.createElement('article'); card.className = 'team'; card.dataset.teamId = team.id;
+    const head = document.createElement('div'); head.className = 'teamHead';
+    const title = document.createElement('h3'); title.className = 'teamName'; title.textContent = team.name;
+    const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = `${team.playerIds.length} / 2`;
+    head.append(title, badge);
+    const players = document.createElement('div'); players.className = 'teamPlayers';
+    for (const id of team.playerIds) {
+      const player = state.players[id];
+      const pill = document.createElement('div'); pill.className = 'pill';
+      const name = document.createElement('b'); name.textContent = player.name;
+      const marker = document.createElement('span'); marker.className = 'mini';
+      marker.textContent = !player.online ? 'переподключение…' : id === clientId ? 'это вы' : 'в игре';
+      pill.append(name, marker); players.append(pill);
+    }
+    if (!team.playerIds.length) {
+      const empty = document.createElement('p'); empty.className = 'muted'; empty.textContent = 'Два свободных места'; players.append(empty);
+    }
+    const actions = document.createElement('div'); actions.className = 'teamActions';
+    const join = button('Присоединиться', () => send('JOIN_TEAM', { teamId: team.id }), 'btn');
+    join.disabled = !lobby || team.playerIds.length >= 2 || state.players[clientId].teamId === team.id;
+    const leave = button('Выйти', () => send('LEAVE_TEAM'));
+    leave.disabled = !lobby || state.players[clientId].teamId !== team.id;
+    actions.append(join, leave);
+    if (isHost()) {
+      const rename = button('Название', () => {
+        const value = prompt('Название команды', team.name);
+        if (value !== null) send('RENAME_TEAM', { teamId: team.id, name: value });
+      }); rename.disabled = !lobby; actions.append(rename);
+      if (!team.playerIds.length) {
+        const remove = button('Удалить', () => send('DELETE_TEAM', { teamId: team.id }));
+        remove.disabled = !lobby; actions.append(remove);
+      }
+    }
+    card.append(head, players, actions); $('#teams').append(card);
+  }
+  $('#players').replaceChildren();
+  for (const player of Object.values(state.players)) {
+    const item = document.createElement('span'); item.className = 'playerTag';
+    item.textContent = `${player.name}${player.id === state.game.hostId ? ' · ведущий' : ''}${player.online ? '' : ' · нет связи'}`;
+    $('#players').append(item);
+  }
+  $('#playerCount').textContent = Object.values(state.players).filter((player) => player.online).length;
+}
 function render() {
-  if (!state || !clientId) return;
-
-  // my meta
-  const p = myPlayer();
-  if (p) {
-    meMeta.textContent = `ID: ${clientId} · Ведущий: ${isHost() ? "да" : "нет"}`;
-    if (!nameInput.value) nameInput.value = p.name;
-  }
-
-  // sync round seconds display
-  roundSecondsInput.value = state.game.roundSeconds;
-
+  if (!connected || !state || !clientId) return;
+  const g = state.game, host = isHost();
+  document.body.dataset.playing = String(g.status !== 'lobby');
+  $('#statusChip').textContent = ({ lobby: 'Лобби', running: 'Игра идёт', paused: 'Пауза' })[g.status];
+  $('#meMeta').textContent = host ? 'Вы — ведущий. Управляйте игрой и приглашайте друзей.' : `Ведущий: ${byId(g.hostId)}`;
+  if (document.activeElement !== $('#nameInput')) $('#nameInput').value = state.players[clientId].name;
+  if (document.activeElement !== $('#roundSeconds')) $('#roundSeconds').value = g.roundSeconds;
+  $('#saveNameBtn').disabled = false;
+  $('#createTeamBtn').disabled = g.status !== 'lobby';
+  $('#setRoundBtn').disabled = !host || g.status !== 'lobby';
+  const validCount = Object.values(state.teams).filter((team) => team.playerIds.length === 2 && team.playerIds.every((id) => state.players[id]?.online)).length;
+  $('#startBtn').disabled = !host || g.status !== 'lobby' || validCount < 2;
+  $('#pauseBtn').disabled = !host || g.status !== 'running';
+  $('#resumeBtn').disabled = !host || g.status !== 'paused';
+  $('#endTurnBtn').disabled = !host || g.status !== 'running';
+  $('#resetBtn').disabled = !host || g.status === 'lobby';
+  const team = state.teams[g.turnTeamId];
+  $('#turnLabel').textContent = team ? `${team.name} · объясняет ${byId(g.turnExplainerId)}, угадывает ${byId(g.turnListenerId)}` : 'Соберите команды и начните игру';
+  $('#timer').textContent = String(g.secondsLeft).padStart(2, '0');
+  const explainer = g.turnExplainerId === clientId;
+  const listener = g.turnListenerId === clientId;
+  $('#roleLabel').textContent = g.status === 'lobby' ? 'До старта' : g.status === 'paused' ? 'Пауза' : explainer ? 'Вы объясняете' : listener ? 'Вы угадываете' : 'Вы наблюдаете';
+  const visible = g.status === 'running' && explainer;
+  $('#word').textContent = visible ? g.currentWord || '—' : g.status === 'running' ? '•••••' : 'Ваша очередь впереди';
+  $('#wordHint').textContent = visible ? 'Объясните слово, не называя его и однокоренные слова.' : g.notice || 'Слово приходит с сервера только объясняющему.';
+  $('#correctBtn').disabled = !visible;
+  $('#skipBtn').disabled = !visible;
+  $('#hostPanel').hidden = !host;
+  $('#hostCountBtn').disabled = !host || !g.lastAction || g.lastAction.awarded;
+  $('#hostNotCountBtn').disabled = !host || !g.lastAction || !g.lastAction.awarded;
+  $('#lastAction').textContent = g.lastAction ? `«${g.lastAction.word}» · ${g.lastAction.awarded ? 'засчитано' : 'не засчитано'}` : 'Здесь появится последнее завершённое слово.';
   renderTeams();
-  renderPlayers();
-  renderGame();
-}
-
-// UI events
-saveNameBtn.onclick = () => {
-  const nm = nameInput.value.trim();
-  if (nm) send("SET_NAME", { name: nm });
-};
-
-createTeamBtn.onclick = () => {
-  const nm = prompt("Название команды", `Команда ${Object.keys(state?.teams||{}).length+1}`);
-  send("CREATE_TEAM", { name: nm || "" });
-};
-
-setRoundBtn.onclick = () => {
-  const s = Number(roundSecondsInput.value);
-  send("SET_ROUND_SECONDS", { seconds: s });
-};
-
-startBtn.onclick = () => send("START_GAME");
-pauseBtn.onclick = () => send("PAUSE_GAME");
-resumeBtn.onclick = () => send("RESUME_GAME");
-endTurnBtn.onclick = () => send("END_TURN");
-
-correctBtn.onclick = () => send("MARK", { action: "correct" });
-skipBtn.onclick = () => send("MARK", { action: "skip" });
-
-hostCountBtn.onclick = () => send("HOST_OVERRIDE_LAST", { decision: "count" });
-hostNotCountBtn.onclick = () => send("HOST_OVERRIDE_LAST", { decision: "not_count" });
-
-copyLinkBtn.onclick = async () => {
-  const url = `${location.origin}${location.pathname}?room=${encodeURIComponent(room)}`;
-  try {
-    await navigator.clipboard.writeText(url);
-    statusChip.textContent = "Ссылка скопирована";
-    setTimeout(()=>renderGame(), 900);
-  } catch {
-    prompt("Скопируй ссылку:", url);
+  const nextScoreKey = JSON.stringify(state.teams);
+  if (scoreKey !== nextScoreKey) {
+    scoreKey = nextScoreKey; $('#scores').replaceChildren();
+    for (const team of Object.values(state.teams).sort((a, b) => b.score - a.score)) {
+      const card = document.createElement('div'); card.className = 'scoreCard';
+      const title = document.createElement('div'); title.className = 'name'; title.textContent = team.name;
+      const points = document.createElement('div'); points.className = 'pts'; points.textContent = `${team.score} очк.`;
+      card.append(title, points); $('#scores').append(card);
+    }
   }
+}
+$('#nameForm').addEventListener('submit', (event) => {
+  event.preventDefault(); const name = $('#nameInput').value.trim();
+  if (name) { localStorage.setItem('alias-name', name); send('SET_NAME', { name }); }
+});
+$('#teamForm').addEventListener('submit', (event) => {
+  event.preventDefault(); send('CREATE_TEAM', { name: $('#teamName').value }); $('#teamName').value = '';
+});
+$('#roundForm').addEventListener('submit', (event) => { event.preventDefault(); send('SET_ROUND_SECONDS', { seconds: Number($('#roundSeconds').value) }); });
+for (const [id, type] of [['startBtn', 'START_GAME'], ['pauseBtn', 'PAUSE_GAME'], ['resumeBtn', 'RESUME_GAME'], ['endTurnBtn', 'END_TURN'], ['resetBtn', 'RESET_GAME']]) $( `#${id}`).onclick = () => send(type);
+$('#correctBtn').onclick = () => send('MARK', { action: 'correct', wordId: state.game.wordId });
+$('#skipBtn').onclick = () => send('MARK', { action: 'skip', wordId: state.game.wordId });
+$('#hostCountBtn').onclick = () => send('HOST_OVERRIDE_LAST', { decision: 'count', actionId: state.game.lastAction?.id });
+$('#hostNotCountBtn').onclick = () => send('HOST_OVERRIDE_LAST', { decision: 'not_count', actionId: state.game.lastAction?.id });
+$('#copyLinkBtn').onclick = async () => {
+  try { await navigator.clipboard.writeText(location.href); notify('Ссылка на комнату скопирована.'); }
+  catch { prompt('Скопируйте ссылку на комнату', location.href); }
 };
-
 connect();
