@@ -3,105 +3,44 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Alias / Шляпа — Activity</title>
+  <meta name="description" content="Alias — объясняйте слова, собирайте команды и играйте вместе в браузере." />
+  <title>Alias — игра в слова</title>
   <link rel="stylesheet" href="styles.css" />
+  <script src="app.js" defer></script>
 </head>
 <body>
-  <div id="app">
-    <header class="topbar">
-      <div class="brand">
-        <div class="logo">🎩</div>
-        <div>
-          <div class="title">Шляпа (Alias)</div>
-          <div class="subtitle" id="roomLabel"></div>
-        </div>
+<div id="app">
+  <header class="topbar">
+    <div class="brand"><div class="logo" aria-hidden="true">a.</div><div><h1 class="title">Alias<span>Игра в слова</span></h1><div class="subtitle" id="roomLabel"></div></div></div>
+    <div class="right"><span class="chip" id="statusChip" role="status">Подключение…</span><button class="btn ghost" id="copyLinkBtn">Пригласить друзей ↗</button></div>
+  </header>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+  <main class="grid">
+    <section class="card" id="meCard" aria-labelledby="meTitle">
+      <p class="eyebrow">ПЕРВЫЙ ШАГ</p><h2 id="meTitle">Познакомимся?</h2><p class="muted intro">Выберите имя, поделитесь ссылкой и соберите минимум четыре человека.</p>
+      <form id="nameForm"><label class="label" for="nameInput">Ваше имя</label><div class="row"><input id="nameInput" class="input" maxlength="32" placeholder="Например, Саша" required /><button class="btn" id="saveNameBtn">Сохранить</button></div></form>
+      <p class="muted" id="meMeta"></p><div class="divider"></div>
+      <p class="eyebrow">КАК ИГРАТЬ</p><ol class="rules"><li>Разделитесь на команды по двое.</li><li>Объясняйте слова за отведённое время.</li><li>Угадайте больше слов, чем соперники.</li></ol>
+    </section>
+    <section class="card" id="lobbyCard" aria-labelledby="lobbyTitle">
+      <div class="cardHead"><div><p class="eyebrow">ГОТОВИМСЯ К ИГРЕ</p><h2 id="lobbyTitle">Команды <span class="mini">· по два игрока</span></h2></div><span class="chip"><span id="playerCount">0</span> в комнате</span></div>
+      <form id="teamForm" class="row"><label class="sr-only" for="teamName">Название команды</label><input id="teamName" class="input" maxlength="32" placeholder="Название новой команды" /><button class="btn" id="createTeamBtn">+ Команда</button></form>
+      <div class="teams" id="teams"></div><div class="players" id="players" aria-label="Игроки комнаты"></div>
+      <div class="divider"></div><form id="roundForm" class="row wrap"><label class="label" for="roundSeconds">Раунд, сек.</label><input id="roundSeconds" class="input small" type="number" min="20" max="180" step="1" value="60" required /><button class="btn ghost" id="setRoundBtn">Применить</button><span class="muted">Настраивает ведущий</span></form>
+    </section>
+    <section class="card" id="gameCard" aria-labelledby="gameTitle">
+      <div class="cardHead"><div><p class="eyebrow">ОБЪЯСНЯЙТЕ · УГАДЫВАЙТЕ · ПОБЕЖДАЙТЕ</p><h2 id="gameTitle">Время слов</h2><p class="muted" id="turnLabel">Соберите команды и начните игру</p></div><button class="btn primary" id="startBtn" disabled>Начать игру →</button></div>
+      <div class="gameGrid">
+        <div class="timerBox"><span class="label">ОСТАЛОСЬ СЕКУНД</span><div class="timer" id="timer">60</div><div class="muted" id="roleLabel">До старта</div></div>
+        <div class="wordBox"><div class="word" id="word">Ваша очередь впереди</div><p class="muted" id="wordHint">Слово приходит с сервера только объясняющему.</p></div>
+        <div class="actions"><button class="btn big primary" id="correctBtn" disabled>✓ Угадали</button><button class="btn big" id="skipBtn" disabled>Пропустить →</button><p class="muted">Отмечать слова может объясняющий.</p></div>
       </div>
-      <div class="right">
-        <div class="chip" id="statusChip">…</div>
-        <button class="btn ghost" id="copyLinkBtn" title="Скопировать ссылку на комнату">Ссылка</button>
-      </div>
-    </header>
-
-    <main class="grid">
-      <section class="card" id="meCard">
-        <h2>Ты</h2>
-        <div class="row">
-          <label class="label">Ник</label>
-          <input id="nameInput" class="input" placeholder="Твой ник" />
-          <button class="btn" id="saveNameBtn">Сохранить</button>
-        </div>
-        <div class="muted" id="meMeta"></div>
-        <div class="divider"></div>
-        <div class="muted">Подсказка: открой эту же ссылку в другом окне, чтобы протестировать.</div>
-      </section>
-
-      <section class="card" id="lobbyCard">
-        <div class="cardHead">
-          <h2>Лобби</h2>
-          <div class="muted">Нужно минимум <b>2 команды</b> по <b>2 игрока</b> чтобы начать.</div>
-        </div>
-
-        <div class="row wrap">
-          <button class="btn" id="createTeamBtn">+ Команда</button>
-          <div class="row">
-            <label class="label">Раунд (сек)</label>
-            <input id="roundSeconds" class="input small" type="number" min="20" max="180" value="60" />
-            <button class="btn ghost" id="setRoundBtn">Применить</button>
-          </div>
-          <div class="spacer"></div>
-          <button class="btn primary" id="startBtn" disabled>Старт</button>
-          <button class="btn ghost" id="pauseBtn" disabled>Пауза</button>
-          <button class="btn ghost" id="resumeBtn" disabled>Продолжить</button>
-          <button class="btn ghost" id="endTurnBtn" disabled>След. ход</button>
-        </div>
-
-        <div class="teams" id="teams"></div>
-        <div class="players" id="players"></div>
-      </section>
-
-      <section class="card" id="gameCard">
-        <div class="cardHead">
-          <h2>Игра</h2>
-          <div class="muted" id="turnLabel">—</div>
-        </div>
-
-        <div class="gameGrid">
-          <div class="timerBox">
-            <div class="timer" id="timer">00</div>
-            <div class="muted" id="roleLabel">—</div>
-          </div>
-
-          <div class="wordBox" id="wordBox">
-            <div class="word" id="word">—</div>
-            <div class="muted" id="wordHint">Слово видит только объясняющий.</div>
-          </div>
-
-          <div class="actions">
-            <button class="btn big primary" id="correctBtn" disabled>✅ Засчитано</button>
-            <button class="btn big" id="skipBtn" disabled>⏭️ Скип</button>
-
-            <div class="divider"></div>
-
-            <div class="hostPanel" id="hostPanel">
-              <div class="muted"><b>Ведущий</b>: может поправить последнее слово</div>
-              <div class="row wrap">
-                <button class="btn ghost" id="hostCountBtn" disabled>Засчитать</button>
-                <button class="btn ghost" id="hostNotCountBtn" disabled>Не засчитать</button>
-              </div>
-              <div class="muted" id="lastAction">—</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="scores" id="scores"></div>
-      </section>
-    </main>
-
-    <footer class="footer muted">
-      Для Discord Activity: укажи URL вида <b>https://…/?room=xxx</b>. Первый вошедший — ведущий.
-    </footer>
-  </div>
-
-  <script src="app.js"></script>
+      <div class="gameControls"><button class="btn ghost" id="pauseBtn" disabled>Пауза</button><button class="btn ghost" id="resumeBtn" disabled>Продолжить</button><button class="btn ghost" id="endTurnBtn" disabled>Следующий ход</button><button class="btn ghost" id="resetBtn" disabled>Вернуться в лобби</button></div>
+      <div class="hostPanel" id="hostPanel" hidden><div><span class="label">КОНТРОЛЬ ВЕДУЩЕГО</span><p class="muted" id="lastAction">Здесь появится последнее завершённое слово.</p></div><div class="row wrap"><button class="btn ghost" id="hostCountBtn" disabled>Засчитать</button><button class="btn ghost" id="hostNotCountBtn" disabled>Не засчитать</button></div></div>
+      <div class="scores" id="scores" aria-label="Счёт команд"></div>
+    </section>
+  </main>
+  <footer class="footer"><span>Alias / Слова объединяют</span><a href="https://github.com/Geist-dev/Alias" target="_blank" rel="noopener noreferrer">Создано Geist-dev ↗</a></footer>
+</div>
 </body>
 </html>
